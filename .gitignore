@@ -1,0 +1,21 @@
+# environment
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# vendored Google GNM source (fetched by setup.sh, or shipped in the bundle)
+third_party/
+
+# participant data and everything derived from it (meshes, fits, viewers with embedded MRI) -- never commit
+out/
+data/
+*.mat
+*.dcm
+*.npz
+*.npy
+*.stl
+*.obj
+
+# local bundles
+*.tar.gz

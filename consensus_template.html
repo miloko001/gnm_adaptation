@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consistent Tract Geometry</title>
+<style>
+:root {
+  --bg: #f4f3ef; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6a65; --line: #e2e0d9; --grid: #ecebe6;
+  --accent: #c0303c; --accent-soft: #f6dfe1; --warn: #8a5200; --warn-soft: #fbeed8; --scene: #e9e7e1; --ref: #2f6fb0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413; --panel: #1f1f1d; --text: #ecebe6; --muted: #9c9a93; --line: #34332f; --grid: #2a2a27;
+    --accent: #ef6b74; --accent-soft: #3a2124; --warn: #f0b45a; --warn-soft: #33281a; --scene: #191918; --ref: #7fb2e5;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413; --panel: #1f1f1d; --text: #ecebe6; --muted: #9c9a93; --line: #34332f; --grid: #2a2a27;
+  --accent: #ef6b74; --accent-soft: #3a2124; --warn: #f0b45a; --warn-soft: #33281a; --scene: #191918; --ref: #7fb2e5;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+.app { display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+#stage { position: relative; background: var(--scene); min-height: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.views { position: absolute; left: 12px; top: 12px; display: flex; gap: 6px; }
+button.pill { font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; }
+button.pill:hover { border-color: var(--muted); }
+button.pill[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 12px; font-size: 12px; color: var(--muted);
+  background: var(--panel); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+aside { background: var(--panel); border-left: 1px solid var(--line); padding: 16px; overflow-y: auto; }
+h1 { font-size: 16px; margin: 0 0 2px; }
+.sub { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.stat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11px; color: var(--muted); }
+.flag { margin-top: 6px; font-size: 12px; padding: 6px 8px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); }
+label.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+input[type=range] { width: 140px; accent-color: var(--accent); }
+input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+svg text { fill: var(--muted); font-size: 10px; }
+.ramp { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); margin:4px 0 0; }
+.ramp i { flex:1; height:8px; border-radius:2px; background: linear-gradient(90deg,#3a9a5b,#e0c040); }
+.ramp i + span + i { background: linear-gradient(90deg,#e0c040,#c0303c); }
+b.v { font-weight: 500; font-variant-numeric: tabular-nums; margin-left: auto; font-size: 12px; }
+.note { font-size: 11px; color: var(--muted); margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+@media (max-width: 800px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: 55vh auto; height: auto; }
+  aside { border-left: 0; border-top: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div id="stage">
+    <div class="views">
+      <button class="pill" data-view="side">Side</button><button class="pill" data-view="front">Front</button><button class="pill" data-view="three">¾</button><button class="pill" data-view="top">Top</button>
+    </div>
+    <div class="legend"><span><i style="background:#d9622b"></i>Consistent empty space (wireframe)</span><span><i style="background:#3a9a5b"></i>GNM head (reference scan)</span></div>
+  </div>
+  <aside>
+    <h1>Consistent internal geometry</h1>
+    <p class="sub" id="sub">sub001 · all scans aligned to one reference</p>
+    <h2>Surface <span id="busy" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
+    <label class="row">Lowest tissue threshold <b id="tlo-v" class="v"></b><input type="range" id="tlo" min="0" max="6" step="1" value="0"></label>
+    <label class="row">Highest tissue threshold <b id="thi-v" class="v"></b><input type="range" id="thi" min="0" max="6" step="1" value="6"></label>
+    <label class="row">Agreement <b id="agr-v" class="v"></b><input type="range" id="agr" min="0.1" max="1" step="0.05" value="0.9"></label>
+    <label class="row">Symmetry <b id="sym-v" class="v"></b><input type="range" id="sym" min="0" max="1" step="0.05" value="1"></label>
+    <label class="row">Wireframe <input type="checkbox" id="show-w" checked></label>
+    <div class="stats">
+      <div class="stat"><b id="m-vol">–</b><span>enclosed space, ml</span></div>
+      <div class="stat"><b id="m-lines">–</b><span>wireframe edges</span></div>
+    </div>
+    <p class="note" style="margin-top:8px">Each scan is thresholded at every tissue level between the lowest and highest; a point's
+      score is the fraction of scans × levels in which it is empty space. <b>Agreement</b> is the score needed to be part of the surface:
+      high keeps only space that is open for every sound (fixed tubes), low adds space open for only some sounds.
+      Low thresholds give cleanly bounded spaces; high ones also open up light articulator contact and faint artefacts.
+      <b>Symmetry</b> blends the map with its mirror image about the head's midline plane (0 = as measured, 1 = fully left–right averaged).</p>
+    <label class="row">GNM head <input type="checkbox" id="show-gnm" checked></label>
+    <label class="row">GNM opacity <input type="range" id="gnm-op" min="0.05" max="1" step="0.05" value="0.2"></label>
+    <h2>Volume planes</h2>
+    <div class="chips" id="srcs"></div>
+    <label class="row"><span><input type="checkbox" id="show-sag" checked> Sagittal</span><input type="range" id="pos-sag" min="0" max="79" step="1" value="40"></label>
+    <label class="row"><span><input type="checkbox" id="show-cor"> Coronal</span><input type="range" id="pos-cor" min="0" max="159" step="1" value="70"></label>
+    <label class="row"><span><input type="checkbox" id="show-ax"> Axial</span><input type="range" id="pos-ax" min="0" max="159" step="1" value="80"></label>
+    <label class="row">Slice opacity <input type="range" id="op" min="0.1" max="1" step="0.05" value="0.9"></label>
+    <label class="row">Brightness <input type="range" id="win" min="0.3" max="1.5" step="0.05" value="1.0"></label>
+    <div class="ramp" id="heat-ramp" style="display:none"><span>0</span><i style="background:linear-gradient(90deg,#000,#7a1f6e,#e0603a,#f8e38a)"></i><span>1 (always empty)</span></div>
+    <h2>Registration</h2>
+    <div class="stats">
+      <div class="stat"><b id="n-scans">–</b><span>scans averaged</span></div>
+      <div class="stat"><b id="ncc">–</b><span>median alignment correlation (upper head)</span></div>
+      <div class="stat"><b id="rot">–</b><span>median head rotation vs reference, °</span></div>
+      <div class="stat"><b id="shift">–</b><span>median head shift vs reference, mm</span></div>
+    </div>
+    <p class="note">Every scan is rigidly aligned to the reference using only the head above the palate (skull, brain, nose),
+      so the neck is not aligned separately: if it bends between scans, the pharynx and larynx blur.
+      Midline plane for the mirror: <span id="mid"></span>. Teeth and bone are dark like air, so they count as empty space.
+      Planes: mean of all aligned scans, the reference scan, or the current score map.</p>
+  </aside>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="vols.js"></script>
+<script src="maps.js"></script>
+<script>
+/*__SN__*/
+</script>
+<script>
+const DATA = /*__DATA__*/null;
+const $ = id => document.getElementById(id);
+const dec = (s, T) => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); };
+const toF = i16 => { const f = new Float32Array(i16.length); for (let i = 0; i < i16.length; i++) f[i] = i16[i] / DATA.q; return f; };
+const stage = $('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(8, 1, 10, 20000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8577, 0.8));
+const key = new THREE.DirectionalLight(0xffffff, 0.6); key.position.set(60, 100, 80); camera.add(key); scene.add(camera);
+
+function geom(v, f) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(toF(dec(v, Int16Array)), 3));
+  g.setIndex(new THREE.BufferAttribute(dec(f, Uint16Array), 1)); g.computeVertexNormals(); return g;
+}
+const gnmMat = new THREE.MeshStandardMaterial({ color: 0x3a9a5b, roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 0.2, depthWrite: false });
+const gnm = new THREE.Mesh(geom(DATA.gnm.v, DATA.gnm.f), gnmMat); gnm.renderOrder = 2; scene.add(gnm);
+const wire = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xd9622b, transparent: true, opacity: 0.85 }));
+wire.renderOrder = 6; scene.add(wire);
+
+// ---- score maps (cropped grid) and live surface ----
+const VD = DATA.vol, C0 = DATA.centre, CR = DATA.crop, CS = CR.shape, NC = CS[0] * CS[1] * CS[2];
+const raw = window.CMAP.raw.map(s => dec(s, Uint8Array)), mir = window.CMAP.mir.map(s => dec(s, Uint8Array));
+const cut = dec(window.CMAP.cut, Uint8Array);
+const score = new Float32Array(NC);
+const ctrl = { tlo: $('tlo'), thi: $('thi'), agr: $('agr'), sym: $('sym') };
+ctrl.tlo.max = ctrl.thi.max = DATA.thrs.length - 1; ctrl.thi.value = DATA.thrs.length - 1;
+function computeScore() {
+  let a = parseInt(ctrl.tlo.value), b = parseInt(ctrl.thi.value);
+  if (a > b) [a, b] = [b, a];
+  const w = parseFloat(ctrl.sym.value) / 2, n = b - a + 1;
+  score.fill(0);
+  for (let t = a; t <= b; t++) { const R = raw[t], M = mir[t]; for (let p = 0; p < NC; p++) score[p] += ((1 - w) * R[p] + w * M[p]) / 255; }
+  for (let p = 0; p < NC; p++) score[p] /= n;
+  $('tlo-v').textContent = DATA.thrs[a].toFixed(2); $('thi-v').textContent = DATA.thrs[b].toFixed(2);
+}
+// cropped voxel coords -> world (centred)
+const wxk = k => (k + CR.lo[2] - (VD.nk - 1) / 2) * VD.vox - C0[0], wyi = i => -(i + CR.lo[0]) * VD.vox - C0[1], wzj = j => -(j + CR.lo[1]) * VD.vox - C0[2];
+function rebuild() {
+  computeScore();
+  const L = Math.min(parseFloat(ctrl.agr.value), 0.99), sym = parseFloat(ctrl.sym.value);
+  $('agr-v').textContent = L.toFixed(2); $('sym-v').textContent = sym.toFixed(2);
+  const r = surfaceNets(score, CS, L, cut, 40);
+  const P = new Float32Array(r.pos.length);
+  for (let v = 0; v < r.pos.length; v += 3) { P[v] = wxk(r.pos[v + 2]); P[v + 1] = wyi(r.pos[v]); P[v + 2] = wzj(r.pos[v + 1]); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setIndex(new THREE.BufferAttribute(r.lines, 1));
+  wire.geometry.dispose(); wire.geometry = g;
+  let nIn = 0; for (let p = 0; p < NC; p++) if (score[p] >= L) nIn++;
+  $('m-vol').textContent = (nIn * VD.vox ** 3 / 1000).toFixed(0); $('m-lines').textContent = (r.lines.length / 2).toLocaleString();
+  if (src === 'score') updateAll();
+}
+let pending = null;
+const schedule = () => { $('busy').textContent = '· updating…'; clearTimeout(pending); pending = setTimeout(() => { rebuild(); $('busy').textContent = ''; }, 30); };
+Object.values(ctrl).forEach(el => el.oninput = schedule);
+
+// ---- volume planes (voxel (i,j,k) -> world x=(k-39.5)*1.25, y=-1.25 i, z=-1.25 j; shifted by DATA.centre) ----
+const wx = k => (k - (VD.nk - 1) / 2) * VD.vox - C0[0], wy = i => -i * VD.vox - C0[1], wz = j => -j * VD.vox - C0[2];
+const SRC = { mean: 'Mean of aligned scans', ref: 'Reference scan', score: 'Score map' };
+const vols = { mean: dec(window.CVOL.mean, Uint8Array), ref: dec(window.CVOL.ref, Uint8Array) };
+let src = 'mean', gain = 1;
+function heat(v) {
+  const st = [[0, 0, 0], [122, 31, 110], [224, 96, 58], [248, 227, 138]];
+  const x = Math.min(Math.max(v, 0) * 3, 2.999), i = Math.floor(x), f = x - i;
+  return st[i].map((c, n) => c + (st[i + 1][n] - c) * f);
+}
+function makePlane(w, h) {
+  const tex = new THREE.DataTexture(new Uint8Array(w * h * 3), w, h, THREE.RGBFormat);
+  tex.magFilter = THREE.LinearFilter; tex.minFilter = THREE.LinearFilter;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2));
+  g.setIndex([0, 1, 2, 0, 2, 3]);
+  const m = new THREE.Mesh(g, mat); m.renderOrder = 3; scene.add(m);
+  return { mesh: m, tex, mat, w, h };
+}
+const planes = { sag: makePlane(VD.nj, VD.ni), cor: makePlane(VD.nk, VD.ni), ax: makePlane(VD.nk, VD.nj) };
+function setCorners(p, c) { const a = p.mesh.geometry.attributes.position; c.forEach((v, n) => a.setXYZ(n, v[0], v[1], v[2])); a.needsUpdate = true; p.mesh.geometry.computeBoundingSphere(); }
+function sample(i, j, k) {
+  if (src !== 'score') return Math.min(255, vols[src][(i * VD.nj + j) * VD.nk + k] * gain);
+  const a = i - CR.lo[0], b = j - CR.lo[1], c = k - CR.lo[2];
+  if (a < 0 || b < 0 || c < 0 || a >= CS[0] || b >= CS[1] || c >= CS[2]) return 0;
+  return score[(a * CS[1] + b) * CS[2] + c];
+}
+function updatePlane(name) {
+  const p = planes[name], d = p.tex.image.data, N = VD;
+  const pos = parseInt($('pos-' + name).value);
+  const put = (r, c, v) => {
+    const o = (r * p.w + c) * 3;
+    if (src === 'score') { const h = heat(v); d[o] = h[0]; d[o + 1] = h[1]; d[o + 2] = h[2]; }
+    else d[o] = d[o + 1] = d[o + 2] = v;
+  };
+  if (name === 'sag') {
+    for (let i = 0; i < N.ni; i++) for (let j = 0; j < N.nj; j++) put(N.ni - 1 - i, j, sample(i, j, pos));
+    setCorners(p, [[wx(pos), wy(N.ni - 1), wz(0)], [wx(pos), wy(N.ni - 1), wz(N.nj - 1)], [wx(pos), wy(0), wz(N.nj - 1)], [wx(pos), wy(0), wz(0)]]);
+  } else if (name === 'cor') {
+    for (let i = 0; i < N.ni; i++) for (let k = 0; k < N.nk; k++) put(N.ni - 1 - i, k, sample(i, pos, k));
+    setCorners(p, [[wx(0), wy(N.ni - 1), wz(pos)], [wx(N.nk - 1), wy(N.ni - 1), wz(pos)], [wx(N.nk - 1), wy(0), wz(pos)], [wx(0), wy(0), wz(pos)]]);
+  } else {
+    for (let j = 0; j < N.nj; j++) for (let k = 0; k < N.nk; k++) put(N.nj - 1 - j, k, sample(pos, j, k));
+    setCorners(p, [[wx(0), wy(pos), wz(N.nj - 1)], [wx(N.nk - 1), wy(pos), wz(N.nj - 1)], [wx(N.nk - 1), wy(pos), wz(0)], [wx(0), wy(pos), wz(0)]]);
+  }
+  p.tex.needsUpdate = true;
+}
+const updateAll = () => ['sag', 'cor', 'ax'].forEach(updatePlane);
+const srcEl = $('srcs');
+for (const k in SRC) {
+  const b = document.createElement('button'); b.className = 'pill'; b.textContent = SRC[k]; b.dataset.src = k;
+  b.onclick = () => { src = k; srcEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.dataset.src === k));
+    $('heat-ramp').style.display = k === 'score' ? 'flex' : 'none'; updateAll(); };
+  srcEl.appendChild(b);
+}
+srcEl.querySelector('button').setAttribute('aria-pressed', true);
+for (const n of ['sag', 'cor', 'ax']) {
+  $('show-' + n).onchange = e => planes[n].mesh.visible = e.target.checked;
+  $('pos-' + n).oninput = () => updatePlane(n);
+  planes[n].mesh.visible = $('show-' + n).checked;
+}
+$('op').oninput = e => Object.values(planes).forEach(p => p.mat.opacity = parseFloat(e.target.value));
+$('win').oninput = e => { gain = 1 / parseFloat(e.target.value); updateAll(); };
+$('show-w').onchange = e => wire.visible = e.target.checked;
+$('show-gnm').onchange = e => gnm.visible = e.target.checked;
+$('gnm-op').oninput = e => gnmMat.opacity = parseFloat(e.target.value);
+$('sub').textContent = `sub001 · ${DATA.stats.n} scans aligned to ${DATA.ref}`;
+$('n-scans').textContent = DATA.stats.n; $('ncc').textContent = DATA.stats.ncc.toFixed(2);
+$('rot').textContent = DATA.stats.rot.toFixed(1); $('shift').textContent = DATA.stats.shift.toFixed(1);
+$('mid').textContent = `${Math.abs(DATA.mirror.offset_mm).toFixed(1)} mm off the scan centre, tilted ${DATA.mirror.tilt_deg.toFixed(1)}°`;
+
+function setView(v) {
+  const c = new THREE.Vector3(0, 0, 0);
+  const dir = { side: [1, 0.02, 0], front: [0.001, 0.02, 1], three: [0.75, 0.3, 0.6], top: [0.001, 1, 0.02] }[v];
+  camera.position.copy(c).add(new THREE.Vector3(...dir).normalize().multiplyScalar(2000));
+  controls.target.copy(c); controls.update();
+}
+document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
+function resize() { const r = stage.getBoundingClientRect(); renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(stage);
+rebuild(); updateAll(); resize(); setView('side');
+(function loop() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
