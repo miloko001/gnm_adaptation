@@ -69,10 +69,13 @@ b.v { font-weight: 500; font-variant-numeric: tabular-nums; margin-left: auto; f
   <aside>
     <h1>Denoising filters</h1>
     <p class="sub" id="sub"></p>
+    <h2>Scan</h2>
+    <div class="chips" id="scans"></div>
     <h2>Filter</h2>
     <div class="chips" id="filters"></div>
     <h2>Surface <span id="busy" style="text-transform:none;letter-spacing:0;font-weight:400"></span></h2>
     <label class="row">Tissue threshold <b id="thr-v" class="v"></b><input type="range" id="thr" min="0.10" max="0.60" step="0.01" value="0.30"></label>
+    <label class="row">Symmetry <b id="sym-v" class="v"></b><input type="range" id="sym" min="0" max="1" step="0.05" value="0"></label>
     <label class="row">Opening (voxels) <b id="open-v" class="v"></b><input type="range" id="open" min="0" max="3" step="1" value="1"></label>
     <label class="row">Min piece size, ml <b id="minml-v" class="v"></b><input type="range" id="minml" min="0" max="5" step="0.1" value="0.5"></label>
     <label class="row">Dark-seed level <b id="seed-v" class="v"></b><input type="range" id="seed" min="0.02" max="0.40" step="0.01" value="0.10"></label>
@@ -85,7 +88,9 @@ b.v { font-weight: 500; font-variant-numeric: tabular-nums; margin-left: auto; f
     <p class="note" style="margin-top:8px">The filter is applied first; then, live in the page: voxels brighter than the <b>tissue threshold</b> are solid;
       an <b>opening</b> removes solid specks and thin bridges; the remaining space is split into connected pieces, and a piece is kept if it is
       bigger than the <b>min size</b>, contains voxels darker than the <b>dark-seed level</b> (real air, not just faint tissue) and is centred
-      within the <b>midline limit</b>. The wireframe is the boundary of the kept space.</p>
+      within the <b>midline limit</b>. The wireframe is the boundary of the kept space.
+      <b>Symmetry</b> blends the filtered scan with its mirror image about the head's midline plane (<span id="mid"></span>) before
+      thresholding: 0 = as measured, 1 = fully left–right averaged (exactly symmetric surface; the box is mirrored too).</p>
     <h2>Slices</h2>
     <div class="chips" id="srcs"></div>
     <label class="row">Show empty space on slices <input type="checkbox" id="tint" checked></label>
@@ -94,13 +99,12 @@ b.v { font-weight: 500; font-variant-numeric: tabular-nums; margin-left: auto; f
     <label class="row"><span><input type="checkbox" id="show-ax"> Axial</span><input type="range" id="pos-ax" min="0" max="159" step="1" value="80"></label>
     <label class="row">Slice opacity <input type="range" id="op" min="0.1" max="1" step="0.05" value="0.9"></label>
     <label class="row">Brightness <input type="range" id="win" min="0.3" max="1.5" step="0.05" value="1.0"></label>
-    <p class="note">Filters run on the box around the tract (below the brain, in front of the spine); outside it the slices show the
+    <p class="note">Each scan's data (all filters, mirrored copies) loads from data/&lt;scan&gt;.js when you pick it. Filters run on the box around the tract (below the brain, in front of the spine); outside it the slices show the
       unfiltered scan. Flat faces where the space meets the box are left out of the wireframe.</p>
   </aside>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="data.js"></script>
 <script>
 /*__SN__*/
 </script>
@@ -118,18 +122,40 @@ const wire = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBa
 wire.renderOrder = 6; scene.add(wire);
 
 // ---- data: crop grid (i,j,k) -> world x=(k-39.5)*1.25, y=-1.25 i, z=-1.25 j, centred on the crop ----
-const VD = DATA.vol, CR = DATA.crop, CS = CR.shape, NC = CS[0] * CS[1] * CS[2], SJ = CS[2], SI = CS[1] * CS[2];
-const SC = DATA.scale / 255, VOXML = VD.vox ** 3 / 1000;
-const fvols = {}; for (const k in window.FDATA.vols) fvols[k] = dec(window.FDATA.vols[k], Uint8Array);
-const box = dec(window.FDATA.box, Uint8Array), cut = dec(window.FDATA.cut, Uint8Array), raw = dec(window.FDATA.raw, Uint8Array);
-const ctr = [(CR.lo[2] + CS[2] / 2 - (VD.nk - 1) / 2) * VD.vox, -(CR.lo[0] + CS[0] / 2) * VD.vox, -(CR.lo[1] + CS[1] / 2) * VD.vox];
+const VD = DATA.vol, SC = DATA.scale / 255, VOXML = VD.vox ** 3 / 1000;
+window.FDATA = window.FDATA || {};
+let CR, CS, NC, SJ, SI, fvols, mvols, box0, cut0, raw, mbox, mcut, boxS, cutS, Vb, box, cut, MIR;
+let stack, solid, tmp, keep, lab, field, field2;
+let ctr = null;                                                      // view centre, fixed from the first scan loaded
 const wx = k => (k - (VD.nk - 1) / 2) * VD.vox - ctr[0], wy = i => -i * VD.vox - ctr[1], wz = j => -j * VD.vox - ctr[2];
-let filt = DATA.default;
-
-// ---- live pipeline ----
-const stack = new Int32Array(NC), solid = new Uint8Array(NC), tmp = new Uint8Array(NC), keep = new Uint8Array(NC), lab = new Int32Array(NC);
-const field = new Float32Array(NC), field2 = new Float32Array(NC);
-const NB = [SI, -SI, SJ, -SJ, 1, -1];
+let filt = DATA.default, curScan = null;
+function useScan(id) {
+  const F = window.FDATA[id];
+  CR = F.crop; CS = CR.shape; NC = CS[0] * CS[1] * CS[2]; SJ = CS[2]; SI = CS[1] * CS[2]; MIR = F.mirror;
+  fvols = {}; for (const k in F.vols) fvols[k] = dec(F.vols[k], Uint8Array);
+  mvols = {}; for (const k in F.mvols) mvols[k] = dec(F.mvols[k], Uint8Array);
+  box0 = dec(F.box, Uint8Array); cut0 = dec(F.cut, Uint8Array); raw = dec(F.raw, Uint8Array);
+  mbox = dec(F.mbox, Uint8Array); mcut = dec(F.mcut, Uint8Array);
+  boxS = new Uint8Array(NC); cutS = new Uint8Array(NC);            // symmetric box (box AND mirror) and its cut flags
+  for (let p = 0; p < NC; p++) { boxS[p] = box0[p] & mbox[p]; cutS[p] = cut0[p] | mcut[p]; }
+  Vb = new Float32Array(NC); box = box0; cut = cut0;                // Vb: working volume (filtered, blended with mirror)
+  stack = new Int32Array(NC); solid = new Uint8Array(NC); tmp = new Uint8Array(NC); keep = new Uint8Array(NC); lab = new Int32Array(NC);
+  field = new Float32Array(NC); field2 = new Float32Array(NC);
+  if (!ctr) ctr = [(CR.lo[2] + CS[2] / 2 - (VD.nk - 1) / 2) * VD.vox, -(CR.lo[0] + CS[0] / 2) * VD.vox, -(CR.lo[1] + CS[1] / 2) * VD.vox];
+  curScan = id;
+  $('mid').textContent = `${Math.abs(MIR.offset_mm).toFixed(1)} mm off the scan centre, tilted ${MIR.tilt_deg.toFixed(1)}°`;
+  $('sub').textContent = `sub001 · ${DATA.labels[id]} · ${id}`;
+  document.querySelectorAll('#scans button').forEach(b => b.setAttribute('aria-pressed', b.dataset.s === id));
+}
+function loadScan(id, done) {
+  const st = $('busy');
+  if (window.FDATA[id]) { useScan(id); return done && done(); }
+  st.textContent = '· loading scan…';
+  const sc = document.createElement('script'); sc.src = 'data/' + id + '.js';
+  sc.onload = () => { st.textContent = ''; useScan(id); done && done(); };
+  sc.onerror = () => { st.textContent = '· scan file missing (keep the data/ folder next to this page)'; };
+  document.head.appendChild(sc);
+}
 function morph(src, dst, erode) {      // 6-neighbour erosion / dilation; outside the crop counts as solid
   const I = CS[0] - 1, J = CS[1] - 1, K = CS[2] - 1;
   for (let i = 0; i <= I; i++) for (let j = 0; j <= J; j++) for (let k = 0; k <= K; k++) {
@@ -154,10 +180,13 @@ function blur(src, dst) {               // separable [1 2 1]/4 per axis (~ Gauss
 }
 let lastVol = 0;
 function rebuild() {
-  const P = { thr: +$('thr').value, open: +$('open').value, minml: +$('minml').value, seed: +$('seed').value, midx: +$('midx').value };
+  const P = { sym: +$('sym').value, thr: +$('thr').value, open: +$('open').value, minml: +$('minml').value, seed: +$('seed').value, midx: +$('midx').value };
   $('thr-v').textContent = P.thr.toFixed(2); $('open-v').textContent = P.open; $('minml-v').textContent = P.minml.toFixed(1);
-  $('seed-v').textContent = P.seed.toFixed(2); $('midx-v').textContent = P.midx;
-  const V = fvols[filt], tq = P.thr / SC, sq = P.seed / SC;
+  $('seed-v').textContent = P.seed.toFixed(2); $('midx-v').textContent = P.midx; $('sym-v').textContent = P.sym.toFixed(2);
+  const A = fvols[filt], M = mvols[filt], w = P.sym / 2, tq = P.thr / SC, sq = P.seed / SC;
+  for (let p = 0; p < NC; p++) Vb[p] = (1 - w) * A[p] + w * M[p];
+  box = P.sym > 0 ? boxS : box0; cut = P.sym > 0 ? cutS : cut0;
+  const V = Vb;
   for (let p = 0; p < NC; p++) solid[p] = (V[p] > tq || !box[p]) ? 1 : 0;
   for (let n = 0; n < P.open; n++) { morph(solid, tmp, true); solid.set(tmp); }
   for (let n = 0; n < P.open; n++) { morph(solid, tmp, false); solid.set(tmp); }
@@ -191,7 +220,7 @@ function rebuild() {
 }
 let pending = null;
 const schedule = () => { $('busy').textContent = '· updating…'; clearTimeout(pending); pending = setTimeout(() => { rebuild(); $('busy').textContent = ''; }, 40); };
-['thr', 'open', 'minml', 'seed', 'midx'].forEach(id => $(id).oninput = schedule);
+['sym', 'thr', 'open', 'minml', 'seed', 'midx'].forEach(id => $(id).oninput = schedule);
 const fEl = $('filters');
 for (const k in DATA.filters) {
   const b = document.createElement('button'); b.className = 'pill'; b.textContent = DATA.filters[k]; b.dataset.f = k;
@@ -201,7 +230,7 @@ for (const k in DATA.filters) {
 fEl.querySelector(`[data-f="${filt}"]`).setAttribute('aria-pressed', true);
 
 // ---- slices ----
-const SRC = { filt: 'Filtered', raw: 'Unfiltered' };
+const SRC = { filt: 'Filtered (+ symmetry)', raw: 'Unfiltered' };
 let src = 'filt', gain = 1, tint = true;
 function makePlane(w, h) {
   const tex = new THREE.DataTexture(new Uint8Array(w * h * 3), w, h, THREE.RGBFormat);
@@ -220,7 +249,7 @@ function sample(i, j, k) {        // -> [grey 0..255, empty-space flag]
   const a = i - CR.lo[0], b = j - CR.lo[1], c = k - CR.lo[2];
   const inC = a >= 0 && b >= 0 && c >= 0 && a < CS[0] && b < CS[1] && c < CS[2];
   const q = inC ? (a * CS[1] + b) * CS[2] + c : -1;
-  const v = (src === 'filt' && inC) ? fvols[filt][q] : raw[(i * VD.nj + j) * VD.nk + k];
+  const v = (src === 'filt' && inC) ? Vb[q] : raw[(i * VD.nj + j) * VD.nk + k];
   return [Math.min(255, v * 1.1 * gain), inC && keep[q]];
 }
 function updatePlane(name) {
@@ -260,7 +289,9 @@ $('tint').onchange = e => { tint = e.target.checked; updateAll(); };
 $('op').oninput = e => Object.values(planes).forEach(p => p.mat.opacity = +e.target.value);
 $('win').oninput = e => { gain = 1 / +e.target.value; updateAll(); };
 $('show-w').onchange = e => wire.visible = e.target.checked;
-$('sub').textContent = `sub001 · ${DATA.scan} · one scan`;
+const scEl = $('scans');
+DATA.scans.forEach(id => { const b = document.createElement('button'); b.className = 'pill'; b.textContent = DATA.labels[id]; b.dataset.s = id;
+  b.onclick = () => loadScan(id, schedule); scEl.appendChild(b); });
 $('thr').value = DATA.params.thr; $('seed').value = DATA.params.seed; $('minml').value = DATA.params.min_ml; $('midx').value = DATA.params.max_abs_x;
 
 function setView(v) {
@@ -271,7 +302,7 @@ function setView(v) {
 document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 function resize() { const r = stage.getBoundingClientRect(); renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
 new ResizeObserver(resize).observe(stage);
-resize(); setView('side'); rebuild();
+resize(); loadScan(DATA.first, () => { setView('side'); rebuild(); });
 (function loop() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
 </script>
 </body>
