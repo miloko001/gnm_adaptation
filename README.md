@@ -43,7 +43,7 @@ embedded MRI). Those travel in the bundle: unpack it and copy its `out/` into th
 | `head_mesh_fit.py` | **Current head fit** (`mri_head_mesh`, `fit_head_mesh`). `python head_mesh_fit.py <recon_dir> out/v5 <scan> 0.15` |
 | `tissue_mesh.py` | Inner surface of the solid tissue (threshold 0.25, like the skin outline) around the tract → `out/v5/<scan>_tissue.stl`. The head viewer precomputes it at thresholds 0.10–0.80 (`out/viewer_head/mesh/`, ~2.7 MB per scan, cached; delete a file to regenerate) with a slider |
 | `consensus.py`, `make_viewer_consensus.py` + `consensus_template.html`, `surface_nets.js` | Cross-scan consistency structure and live-slider viewer (see above) |
-| `filters.py` | Denoising filters to compare before thresholding (draft, untested) |
+| `filters.py`, `make_viewer_filters.py` + `filters_template.html` | Denoising filters (Gaussian ×2, median 3³/5³, total variation, non-local means, anisotropic diffusion) and a one-scan viewer that runs the tissue_mesh pipeline live with every parameter on a slider. `python make_viewer_filters.py <recon_dir> 06_pot_r1 out/viewer_filters/index.html` |
 | `air_mesh.py` | Earlier: thresholded air inside the head (narrow parts close up) → `out/v5/<scan>_air.stl` |
 | `make_viewer4.py` + `viewer4_template.html` | **Head-fit viewer** → `out/viewer_head/` (keep `vol/` and `mesh/` beside `index.html`); shows `_tissue.stl` as an orange wireframe if present |
 | `fit_gnm.py` | MRI skin surface / head mask helpers; older one-directional GNM fit |
